@@ -23,6 +23,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -227,6 +228,11 @@ def seed(
             accepted[kind], rejected[kind] = [], []
             for row in selected:
                 response = client.post(f"/api/v1/{kind}", json=row)
+                for _ in range(5):
+                    if response.status_code != 429:
+                        break
+                    time.sleep(0.3)
+                    response = client.post(f"/api/v1/{kind}", json=row)
                 target = accepted if response.status_code == 202 else rejected
                 target[kind].append(
                     response.json()

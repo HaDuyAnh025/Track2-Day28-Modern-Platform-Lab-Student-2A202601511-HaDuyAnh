@@ -1,5 +1,6 @@
 .venv/
 .lab28/
+ports.local.env
 __pycache__/
 *.pyc
 .pytest_cache/
