@@ -49,8 +49,14 @@ probe vLLM trong vài giây (TTL ngắn) thay vì gọi lại mỗi request `/re
   chỉ có ý nghĩa trong một partition; hai bản ghi cùng `idempotency_key` có thể
   rơi vào partition khác nhau qua các lần gửi lại. So theo cặp giá trị nghiệp
   vụ giữ tính xác định bất kể Kafka phân phối lại thế nào, đổi lại phải tin
-  tưởng đồng hồ producer thay vì thứ tự giao hàng. Được xác nhận trực tiếp bởi
-  `IT-J2-idempotent-replay` (9/9 pass): gửi lại nguyên lô không tăng số dòng.
+  tưởng đồng hồ producer thay vì thứ tự giao hàng. Xác nhận ở hai mức: unit
+  test `tests/test_delta_merge_idempotency.py` (22/22 pass, 1.28s, không phụ
+  thuộc Airflow/Spark) chứng minh trực tiếp logic dedupe; và
+  `IT-J2-idempotent-replay` từng pass 9/9 trong phiên làm việc đầu (hệ thống
+  còn "khỏe"). Về sau, khi hệ thống đã chạy liên tục >3 giờ và RAM xuống thấp,
+  test J2 hai lần báo timeout ở bước chờ Airflow (300s) dù DAG run thật sự vẫn
+  `state: success` khi tra qua API (chỉ mất 315–357s, vượt ngân sách test) —
+  xem Production gap #9 ở mục 3.
 - **`readiness_status` tách `mandatory` khỏi `ready`.** Feast và vLLM có thể
   lỗi mà không kéo `/ready` xuống `not_ready` (`LAB28_VLLM_REQUIRE_REAL` mặc
   định `false` trong container, nhưng `true` khi chạy CLI trực tiếp ở host —
@@ -181,6 +187,17 @@ thay vì che giấu.
   NetworkPolicy/Gateway/HTTPRoute`). Live drift/rollback (Argo CD tự đồng bộ
   lại khi ai đó `kubectl edit` trực tiếp) cần một cụm K8s riêng — làm ở máy
   nhóm/giảng viên cấp khi có, không ép trên máy đang gần hết RAM.
+- **Production gap #9 — độ trễ Airflow/Spark tăng dần theo thời gian uptime,
+  không có budget test thích ứng.** Sau >3 giờ chạy `--profile full` liên tục
+  (RAM tụt còn ~745MB–1.5GB), một lần chạy DAG từ 45–144s (đầu phiên) tăng lên
+  275–315s (cuối phiên) — vẫn `state: success`, dữ liệu đúng, nhưng
+  `IT-J2-idempotent-replay` có `timeout=300s` cứng trong `wait_for_run` nên
+  báo lỗi giả (test framework timeout, không phải lỗi hệ thống). Thử khởi
+  động lại riêng `airflow`+`spark-connect` để giải phóng bộ nhớ JVM tích tụ
+  không đủ cải thiện tốc độ (RAM còn lại quá thấp để cấp thêm heap). Production
+  thật cần: JVM heap riêng biệt theo container thay vì chia sẻ RAM còn lại của
+  máy, và test timeout nên tính theo phân vị đo được (P99 thực tế) thay vì một
+  hằng số cố định.
 - **Sự cố thật #2 — Kaggle "Save & Run All" tắt mất phiên GPU giữa demo.**
   Lần đầu nối vLLM, dùng nút "Save Version → Save & Run All (Commit)" để chạy
   notebook — tưởng đây là cách "khởi động" server. Thực tế chế độ này chạy
